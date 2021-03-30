@@ -1,0 +1,116 @@
+---
+title: "Lab-03R"
+author: "36-290 -- Statistical Research Methodology"
+date: "Week 3 Thursday -- Fall 2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: spacelab
+---
+
+Name: Cherie Hua
+
+Andrew ID: cxhua
+
+This lab is to be begun in class, but may be finished outside of class at any time prior to Friday, September 18<sup>th</sup> at 6:00 PM. You must commit both the edited `Rmd` file and the "knitted" `html` file for this lab to your `GitHub` repo. (You can verbally discuss aspects of the labs with your classmates, but please do not share code, etc.)
+
+---
+
+# Preliminaries
+
+## Goal
+
+The goal of this lab is apply K-means and hierarchical clustering.
+
+Note that this lab may have, in your view, relatively few instructions. That's in part because the labs at the back of each chapter in ISLR (the class textbook) provide details about packages and useful "starter code." You should look through (if not work through) these labs either before doing this lab or for extra practice. However, note that the ISRL labs use neither `dplyr` nor `ggplot` (which is fine).
+
+If you are confused: that's what office hours are for.
+
+## Data
+
+We'll begin by importing the stellar data you worked with on Tuesday:
+```{r}
+rm(list=ls())
+file.path = "https://raw.githubusercontent.com/pefreeman/36-290/master/EXAMPLE_DATASETS/DRACO/draco_photometry.Rdata"
+load(url(file.path))
+df = data.frame(ra,dec,velocity.los,log.g,mag.g,mag.r,mag.i)
+rm(file.path,ra,dec,velocity.los,log.g,temperature,mag.u,mag.g,mag.r,mag.i,mag.z,metallicity,signal.noise)
+objects()
+```
+
+If everything loaded correctly, you should see one variable in your global environment: `df`. `df` is a data frame with 2778 rows and 7 columns. See this [README file](https://github.com/pefreeman/36-290/tree/master/EXAMPLE_DATASETS/DRACO) for a full description of the data and its variables. Note that I have removed `signal.noise`, `metallicity`, `temperature`, and two of the magnitudes from the data frame, to reduce the dimensionality.
+
+# Questions
+
+To answer the questions below, it will help you to refer to Sections 10.3 and 10.5 of ISLR; it might also help you to refer to your previous lab work (and, as always, to Google). 
+
+## Question 1
+
+Filter the data frame such that it only contains values of `dec` &gt; 56, values of `ra` &lt; 264, and values of `velocity.los` between -350 and -250. Mutate the data frame to have g-r and r-i colors, then delete the magnitudes and `velocity.los`. Save the resulting data frame as `df.new`.
+```{r}
+library(tidyverse)
+df.new <- filter(df, dec > 56 & ra < 264 & velocity.los > -350 & velocity.los < -250)
+df.new <- subset(df.new, select = -c(velocity.los))
+```
+
+## Question 2
+
+Use the `kmeans()` function to cluster the data in your data frame. Try different values for K, and finally display results for what *you* would choose as its optimal value. The default for `nstart` is 1; that should be increased to something larger...play with the values for this argument. Display the results using `ggpairs()`, and briefly comment on your interpretation of the results. Pass this argument to `ggpairs()`: `mapping=aes(color=factor(km.out$cluster))`, where `km.out` is the output from K-means, and `cluster` is the number of the cluster to which a datum has been assigned. Hint: if it looks like there are "strips" in `log.g`, you have probably done something wrong. Ruminate on what that might be. Finally ask me if you cannot figure out what might be wrong.
+```{r}
+library(GGally)
+km.out = kmeans(df.new, 2)
+ggpairs(df.new, mapping=aes(color=factor(km.out$cluster)))
+```
+I chose 2 clusters because there appears to be the most separation between clusters in velocity.los, log.g, ra, and dec.
+
+## Question 3
+
+For your final run of K-means, what are the number of groups and the number of data in each group? Also, what is ratio of the between-cluster sum-of-squares to the total sum-of-squares? (This is a measure of the total variance in the data that is "explained" by clustering. Higher values [closer to 100%] are better, but beware: the larger the value of $K$, the higher the ratio is going to be: you will be getting into the realm of overfitting.) (Hint: `print()` your saved output from `kmeans()`.)
+
+```{r}
+print(km.out)
+```
+```
+There are 2 clusters with sizes 1455 and 1323. The ratio of the between-cluster sum-of-squares to the total sum-of-squares is 86.6%.
+```
+
+## Question 4
+
+Use the `hclust()` function to build a hierarchical clustering tree for your data frame, and use the basic `plot()` function to display the dendrogram. Examine different forms of linkage: which one makes for the best-looking output? (This should not be confused with: which one gives the best clustering result? Note: there is no "right" answer here; best-looking is in the eye of the statistical consultant.) Despite talking up the dendrogram in class, is this actually useful output here? Why or why not? If your client asked for a dendrogram, what step might you want to consider taking before providing one?
+```{r}
+hc.complete=hclust(dist(df.new), method = 'complete')
+plot(hc.complete ,main="Complete Linkage ")
+hc.average = hclust(dist(df.new), method ="average")
+plot(hc.average , main="Average Linkage")
+hc.single = hclust(dist(df.new), method ="single")
+plot(hc.single , main="Single Linkage ")
+```
+```
+I think average linkage looks the best. The dendrogram doesn't appear like a useful output here because there are too many data points. If my client asked me for a dendrogram, I should consider the size of the data I'm working with first.
+```
+
+## Question 5
+
+Use the `cutree()` function to map each observation to a cluster, then use `ggpairs()` to display the clusters in a similar manner as above for K-means. Assume the same number of clusters as you did for K-means. Does the output look the same or different from K-means? Is this what you expected? Why or why not? (Hint: if `cluster` is the output from `cutree()`, then `color=factor(cluster)` will properly color each of the points.) Visualizing the output of hierarchical clustering in this manner (rather than using a dendrogram) is better when the sample size is large.
+```{r}
+cluster <- cutree(hc.average, 2)
+ggpairs(df.new, color = factor(cluster))
+```
+```
+The output looks about the same as in k-means. This was what I expected since cutree() seemed to fix the problem with the large dataset.
+```
+
+## Question 6
+
+In your future lives as statistical consultants, you may be faced with a situation where you need to implement new methodologies for which you have no prior knowledge. In short, you have to learn on the fly. And so it will be here. In the notes, I mention Gaussian Mixture Models...so below, I want you to implement a GMM-based analysis using the `ClusterR` package. Assume *two* clusters. Your final goal is to figure out the proportions of the observations that can be confidently placed in either Cluster 1 or Cluster 2 (cluster probabilities &lt;0.05 or &gt;0.95). The placement of the rest of the observations can be considered ambiguous. Issues thinking this through or issues with implementation? Office hours!
+```{r}
+library(ClusterR)
+```
+
+```{r}
+df.gmm <- GMM(df.new, 2)
+predict <- predict_GMM(df.new, df.gmm$centroids, df.gmm$covariance_matrices, df.gmm$weights)
+(sum(predict$cluster_proba[,1] > 0.95) + sum(predict$cluster_proba[,1] < 0.05)) /
+(sum(predict$cluster_proba[,2] > 0.95) + sum(predict$cluster_proba[,2] < 0.05))
+```

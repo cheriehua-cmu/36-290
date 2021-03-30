@@ -1,0 +1,136 @@
+---
+title: "Lab_10T"
+author: "36-290 -- Statistical Research Methodology"
+date: "Week 10 Tuesday -- Fall 2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: spacelab
+---
+
+Name: Cherie Hua
+                                      
+Andrew ID: cxhua 
+
+This lab is to be begun in class, but may be finished outside of class at any time prior to Wednesday, November 11<sup>th</sup> at 6:00 PM. You must commit both the edited `Rmd` file and the "knitted" `html` file for this lab to your `GitHub` repo. (You can verbally discuss aspects of the labs with your classmates, but please do not share code, etc.)
+
+---
+
+# Preliminaries
+
+## Goal
+
+SVM and star/quasar classification.
+
+## Data
+
+Below we read in the `STAR_QUASAR` dataset, last seen back in Week 5 when you were learning about logistic regression.
+```{r}
+rm(list=ls())
+file.path = "https://raw.githubusercontent.com/pefreeman/36-290/master/EXAMPLE_DATASETS/STAR_QUASAR/Star_Quasar.Rdata"
+load(url(file.path))
+rm(file.path)
+
+col.ug = df$u.mag - df$g.mag
+col.gr = df$g.mag - df$r.mag
+col.ri = df$r.mag - df$i.mag
+col.iz = df$i.mag - df$z.mag
+mag.r  = df$r.mag
+predictors = data.frame(col.ug,col.gr,col.ri,col.iz,mag.r)
+response   = df$class
+rm(df)
+
+cat("Sample size: ",length(response),"\n")
+```
+To remind you: this dataset contains brightness measurements (i.e., magnitudes) for 500 Milky Way stars and for 500 extragalactic quasars, with the measurements made in five different bandpasses (denoted u, g, r, i, and z) stretching from the ultraviolet through the optical regime to the near-infrared. Because quasar light is so concentrated, one cannot simply look at an image and say "this object is a star and this other object is a quasar"...they look the same, like point sources. Once has to differentiate them using broad-band (and other!) data.
+
+# Questions
+
+## Question 1
+
+Split the data and perform a basic logistic regression analysis. (Yes, logistic regression...you are establishing a baseline and seeing if SVM can beat it.) You just need to output the test-set MCR and the confusion matrix.
+```{r}
+set.seed(10385)
+predictors = data.frame(scale(predictors))
+dt = sample(nrow(predictors), 0.7*nrow(predictors))
+pred.train = predictors[dt,]
+pred.test = predictors[-dt,]
+resp.train = response[dt]
+resp.test = response[-dt]
+
+#Logistic Regression
+set.seed(6934)
+logClassifier = glm(resp.train ~ ., data = pred.train, family = "binomial")
+log.pred = predict(logClassifier, newdata = pred.test)
+
+#confusion matrix
+table(ifelse(log.pred < 0.5, "QSO", "STAR"), resp.test)
+#mcr
+(11 + 38)/(146 + 38 + 11 + 105)
+```
+
+## Question 2
+
+We will work with the `e1071` package. (Its name comes from the coding for the Institute of Statistics and Probability Theory at the Technische Universitat Wien, in Vienna. It's like us calling a package `36-290`. Which we should.) Here, code a support vector classifier (meaning, use `kernel="linear"`): use the `tune()` function with a representative sequence of potential costs $C$, then extract the best model. If the optimum value of $C$ occurs at or very near the end of your sequence of potential costs, alter the sequence. The variable `best.parameters`, embedded in the output, provides the optimal value for $C$. Provide that value. Use the best model to generate predictions, a test-set MCR, and a confusion matrix. Does the support vector classifier "beat" logistic regression? How do the results differ?
+
+Note: `e1071` is prickly about wanting the response vector to be part of the predictor data frame. To join the predictors and response together, do the following: `pred.train = cbind(pred.train,resp.train)`. `cbind()` means "column bind."
+
+Also note that in SVM, it is conventional to scale the predictors! (But not the response, so scale first, then cbind.)
+
+Note that `tune()` does cross-validation on the training set to estimate the optimum value of $C$. Which means that the training data are randomly assigned to folds (by default, 10...to change this, you'd make a call like `tune.control(cross=5)`). Which means you should set a random number seed before calling `tune()`. For reproducibility n'at.
+
+See the third code block of page 364 of `ISLR` for an example of how to specify ranges of tuning parameters. Note there is only one here: `cost`. As for prediction: `tune()` will return an object that includes `best.model`. Pass this to `predict()` along with the argument `newdata=` whatever you call the test predictors data frame. By default, `predict()` will output a vector of class predictions, so there is no need to round off to determine classes.
+```{r}
+if ( require(e1071) == FALSE ) {
+  install.packages("e1071",repos="https://cloud.r-project.org")
+  library(e1071)
+}
+
+#scaled predictors above
+
+pred.train = cbind(pred.train, resp.train)
+
+set.seed(10384)
+tune.out = tune(svm, resp.train ~ ., data = pred.train, kernel = "linear", ranges = list(cost = c(0.1, 1, 10, 100)))
+tune.out$best.parameters
+pred = predict(tune.out$best.model, newdata = pred.test)
+table(pred, resp.test)
+#MCR 
+(19 + 26) / (138 + 117 + 26 + 19)
+```
+```
+The support vector classifier MCR beats logistic regression MCR by about 1%.
+```
+
+## Question 3
+
+Now code a support vector machine with a polynomial kernel. In addition to tuning `cost`, you also have to tune the polynomial `degree`. Try integers from 2 up to some maximum number (not too large). How do the results change? (Note: if you get the warning `WARNING: reaching max number of iterations`, do not worry about it.)
+```{r}
+set.seed(03874)
+tune.out = tune(svm, resp.train ~ ., data = pred.train, kernel = "polynomial", ranges = list(cost = c(0.1, 1, 10, 100)), degree = 4)
+tune.out$best.parameters
+pred = predict(tune.out$best.model, newdata = pred.test)
+table(pred, resp.test)
+#MCR
+(7 + 37)/(150 + 37 + 7 + 106)
+```
+```
+With higher degree polynomials, the misclassification rate of STAR rises while the MCR for QSO decreases. With the optimal degree, the MCR is slightly less than in Q2.
+```
+
+## Question 4
+
+Now code a support vector machine with a radial kernel. In addition to tuning `cost`, you also have to tune the parameter `gamma`. Try a base-10 logarithmic sequence of values that includes 0 (for $10^0 = 1$). How do the results change?
+```{r}
+set.seed(03874)
+tune.out = tune(svm, resp.train ~ ., data = pred.train, kernel = "radial", ranges = list(cost = c(0.1, 1, 10, 100)), gamma = 0.1)
+tune.out$best.parameters
+pred = predict(tune.out$best.model, newdata = pred.test)
+table(pred, resp.test)
+#MCR
+(5+5) / (5+5+152+138)
+```
+```
+With higher gamma values, the MCR rises, especially for star. When I set gamma to 0.1, the MCR is about 3% which is really low.
+```

@@ -1,0 +1,189 @@
+---
+title: "Lab_09R"
+author: "36-290 -- Statistical Research Methodology"
+date: "Week 9 Thursday -- Fall 2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: spacelab
+---
+
+Name: Cherie Hua
+
+Andrew ID: cxhua
+
+This lab is to be begun in class, but may be finished outside of class at any time prior to Friday, October 30<sup>th</sup> at 6:00 PM. You must commit both the edited `Rmd` file and the "knitted" `html` file for this lab to your `GitHub` repo. (You can verbally discuss aspects of the labs with your classmates, but please do not share code, etc.)
+
+---
+
+# Preliminaries
+
+## Goal
+
+Today's goal is to learn how to apply K nearest neighbors (KNN) via use of `R`'s `FNN` package, which provides (relatively) convenient functions for determining the optimal number of neighbors $k$ and for generating predictions on a test set.
+
+# Questions
+
+## Data, Part I
+
+Below we read in the `PHOTO_MORPH` dataset:
+```{r}
+rm(list=ls())
+file.path = "https://raw.githubusercontent.com/pefreeman/36-290/master/EXAMPLE_DATASETS/PHOTO_MORPH/photo_morph.Rdata"
+load(url(file.path))
+rm(file.path)
+
+predictors = data.frame(scale(predictors))
+
+cat("Sample size: ",length(response),"\n")
+```
+To remind you: if everything loaded correctly, you should see two variables in your global environment: `predictors` and `response`, the former with 16 measurements each for 3,419 galaxies, and the latter being 3,419 spectroscopically determined redshifts (spectroscopic = "effectively no error in the redshift determination," i.e., "we know where the galaxy is with high precision"). For the 16 predictor variables, four represent brightness (one magnitude, three colors), and 12 are morphological statistics, i.e., statistics that encode the galaxy's appearance.
+
+**Note that I scaled (i.e., standardized) the predictor data frame,** because KNN relies on the Euclidean distance to determine distances to neighbors.
+
+## Question 1
+
+Split the data! Carry out a traditional linear regression analysis and compute the test-set MSE. Set it aside.
+
+Then work with `FNN` to derive a value for the same metric. The interface to `FNN`, like that to `xgboost`, is not written in a manner consistent with older, more traditional packages. However, the documentation is a bit more straightforward.
+
+To carry out a KNN regression analysis, you need to do the following:
+<ul>
+<li> Determine the maximum value for the number of nearest neighbors. Call this `k.max`. This should be of order 10-100; realize that if your optimal value of $k$ that you determine is equal to `k.max`, then `k.max` is too small and you'll have to increase it and run the algorithm again.</li>
+<li> Initialize a vector called `mse.k` of length `k.max`.</li>
+<li> Loop over calls `knn.reg()` with training data only and with different values of $k$. Since the dataset is not that large, use `algorithm="brute"`. In each loop, after the call to `knn.reg()`, save the value of the validation MSE, using the `pred` vector that is embedded in the output from `knn.reg()`, and `resp.train`. The `pred` vector is an output from the cross-validation that `knn.reg()` does internally. Look at the documentation for `knn.reg()` for help.</li>
+<li> The optimal value of $k$ is the one for which `mse.k` achieves its minimum value. Find this value by applying, e.g., `which.min()` to the `mse.k` vector. Again, if the optimal value of $k$ is equal to (or very close to) `k.max`, increase `k.max` and run everything again.</li>
+<li> Using `ggplot()`, plot the validation MSE versus the number of neighbors $k$. Remember: you'll have to define a data frame, where one column is `1:k.max` and the other column is `mse.k`</li>
+<li> Call `knn.reg()` again, but this time with both the training and test data, with $k$ set to $k_{\rm opt}$. Use the output to compute the test-set MSE for KNN.</li>
+<li>Use `ggplot()` to make a regression diagnostic plot.</li>
+</ul>
+What is the optimal value of $k$? Is the test-set MSE substantially smaller for KNN versus linear regression? For these data, which model would you adopt? Would it depend on the needs of the client?
+```{r}
+#linear regression
+set.seed(2456)
+dt = sample(nrow(predictors), 0.7*nrow(predictors))
+pred.train = predictors[dt,]
+pred.test = predictors[-dt,]
+resp.train = response[dt]
+resp.test = response[-dt]
+
+lm.train = lm(resp.train ~ ., data = pred.train)
+lm.preds = predict(lm.train, newdata = pred.test)
+lm.mse = mean((resp.test - lm.preds)^2)
+lm.mse
+```
+
+```{r}
+#KNN
+set.seed(1038)
+if ( require(FNN) == FALSE ) {
+  install.packages("FNN",repos="https://cloud.r-project.org")
+  library(FNN)
+}
+
+k.max <- 45
+mse.k <- vector("double", length = k.max)
+for (i in 1:k.max) {
+  reg <- knn.reg(pred.train, y = resp.train, test = pred.test, k = i, algorithm="brute")
+  mse.k[i] <- mean((reg$pred - resp.test)^2)
+}
+
+which.min(mse.k)
+```
+
+```{r}
+library(GGally)
+ggplot(data = data.frame(1:k.max, mse.k), mapping = aes(x = 1:k.max, y = mse.k)) + geom_point(color = "green")
+```
+
+```{r}
+opt <- knn.reg(pred.train, y = resp.train, test = pred.test, k = 6, algorithm="brute")
+mse.opt <- mean((opt$pred - resp.test)^2)
+mse.opt
+
+#regression diagnostic plot
+ggplot(data.frame(resp.test, opt$pred)) + geom_point(mapping = aes(x = resp.test, y = opt$pred), color = "green")
+```
+```
+The optimal value of k is 6. The test-set MSE is .2443. I would adopt KNN, but it mostly depends on whether the client has a small or large number of predictors per variable.
+```
+
+---
+
+Now we turn our attention to classification.
+
+## Data, Part II
+
+We will now load the second dataset from last week: note that while we will not cut down the sample size, we will still balance the classes.
+```{r}
+rm(list=ls())
+file.path = "https://raw.githubusercontent.com/pefreeman/36-290/master/EXAMPLE_DATASETS/TD_CLASS/css_data.Rdata"
+load(url(file.path))
+rm(file.path)
+
+# Eliminate the max.slope column (the 11th column), which has infinities.
+predictors = predictors[,-11]
+
+set.seed(505)
+w.cb = which(response==1)
+w.noncb = which(response!=1)
+s = sample(length(w.cb),length(w.noncb))
+predictors.cb = predictors[w.cb[s],]
+response.cb   = response[w.cb[s]]
+predictors.noncb = predictors[w.noncb,]
+response.noncb   = response[w.noncb]
+predictors = data.frame(scale(rbind(predictors.cb,predictors.noncb)))
+response   = c(response.cb,response.noncb)
+
+response.new = rep("CB",length(response))
+w = which(response!=1)
+response.new[w] = "NON-CB"
+response = factor(response.new)
+cat("Sample size: ",length(response),"\n")
+```
+Note again that I scaled the predictor data frame!
+
+## Question 2
+
+You know the drill: split the data, learn a logistic regression model as a baseline, then learn an KNN model and output the test-set MCR values and the confusion matrices for both. (Assume a decision threshold of 0.5.) Also, like above, use `ggplot()` to display the validation-set MCR versus the number of neighbors. I would have you also create a ROC curve, but the way `FNN` is coded currently makes this relatively difficult to do. Comment on the difference between the MCRs for both models. Also, look at the confusion matrices and comment on where KNN does better than logistic regression. As in Q1, would your conclusion about which model to adopt depend on the needs of the client?
+
+Note that here, instead of using `knn.reg()`, you would use `knn.cv()` to determine the optimum value of $k$, and `knn()` to generate predictions on the test set. Note the `cl` argument for both: this is where `resp.train` goes (since `cl` means "class"). Use the misclassification rate to as your metric for each $k$ value. And use `algorithm="kd_tree"` since your sample size is ten times that as for the regression problem above.
+
+Try setting `k.max` to 40. **But beware!** Running this code chunk will take awhile...maybe 3-5 minutes. Even with efficient searching for nearest neighbors, KNN can be a bit slow for "big" data.
+```{r}
+set.seed(028736)
+dt = sample(nrow(predictors), 0.7*nrow(predictors))
+pred.train = predictors[dt,]
+pred.test = predictors[-dt,]
+resp.train = response[dt]
+resp.test = response[-dt]
+
+#logistic regression
+glm.train = glm(resp.train ~ ., data = pred.train, family = "binomial")
+glm.preds = predict(glm.train, newdata = pred.test, type = "response")
+table(ifelse(glm.preds < 0.5, "CB", "NON-CB"), resp.test)
+
+#MCR
+(1110 + 1586)/(3787 + 3253)
+```
+```{r}
+k.max <- 10
+mcr.k <- vector("double", length = k.max)
+for (i in 1:k.max) {
+  reg <- knn.cv(train = pred.train, cl = resp.train, k = i, algorithm="kd_tree")
+  mean(prediction != true_label)
+  table(ifelse(reg['preds']['Levels'] < 0.5, "CB", "NON-CB"), pred.test)
+  #mcr.k[i] <- reg['preds']['Levels']
+}
+
+
+#which.min(mse.k)
+```
+
+```{r}
+library(GGally)
+ggplot(data = data.frame(1:k.max, mse.k), mapping = aes(x = 1:k.max, y = mse.k)) + geom_point(color = "green")
+```
+
+The difference between the MCR's is that . KNN does better than logistic regression when . Using the model still depends on the number of observations per predictor.

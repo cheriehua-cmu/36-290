@@ -1,0 +1,119 @@
+---
+title: "Lab_03T"
+author: "36-290 -- Statistical Research Methodology"
+date: "Week 3 Tuesday -- Fall 2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: spacelab
+---
+
+Name: Cherie Hua
+
+Andrew ID: cxhua
+
+This lab is to be begun in class, but may be finished outside of class at any time prior to Wednesday, September 16<sup>th</sup> at 6:00 PM. You must commit both the edited `Rmd` file and the "knitted" `html` file for this lab to your `GitHub` repo. (You can verbally discuss aspects of the labs with your classmates, but please do not share code, etc.)
+
+---
+
+## Data
+
+We'll begin by importing some data from the 36-290 GitHub site:
+```{r}
+library(tidyverse)
+rm(list=ls())
+file.path = "https://raw.githubusercontent.com/pefreeman/36-290/master/EXAMPLE_DATASETS/DRACO/draco_photometry.Rdata"
+load(url(file.path))
+df = data.frame(ra,dec,velocity.los,log.g,temperature,mag.g,mag.i)
+rm(file.path,ra,dec,velocity.los,log.g,temperature,mag.u,mag.g,mag.r,mag.i,mag.z,metallicity,signal.noise)
+objects()
+```
+
+If everything loaded correctly, you should see one variable in your global environment: `df`. `df` is a data frame with 2778 rows and 7 columns. See this [README file](https://github.com/pefreeman/36-290/tree/master/EXAMPLE_DATASETS/DRACO) for a full description of the data and its variables. Note that I have removed `signal.noise`, `metallicity`, and three of the magnitudes from the data frame, to reduce the dimensionality and thus make analyses easier. To be clear: the data do not explicitly include a response variable. It's just a multidimensional set of data.
+
+## Exploratory Data Analysis
+
+This lab will be different from most if not all of the others, in that I want you to bring the tools that you've learned to bear by performing an exploratory analysis on the Draco dataset.
+
+There are no "right answers" in this lab. It is more that some answers may be better (or more complete or tell a fuller story) than others.
+
+Some things that you want to keep in mind:
+
+- When doing EDA, you are attempting to construct a story, not a laundry list. You do not need to create every possible plot using every possible combination of variables. If the two magnitudes are distributed similarly relative to `temperature`, say, it is sufficient to show one plot and mention how the other variable is not shown because the behavior is similar. Or something like that.
+- Descriptions are good: are distributions unimodal or multimodal? Skew or symmetric? Are there outliers? (If there are outliers, perhaps use tools at your disposal to "zoom in"...see below.) Are two variables correlated? Linearly or is there non-linear dependence?
+- Don't assume your first attempt at a plot will be your last attempt. Change limits. Change point sizes. Change labels and titles. Showing a histogram with all the bins smushed to the left because there is one outlier far to the right is no good! Change limits, change the number of bins.
+- Faceting is good. It condenses things down for reports and posters.
+- To learn how to do more than what you already know how to do with `ggplot`, see [this set of notes on correlation plots, pairs plots, etc.](https://github.com/pefreeman/36-290/blob/master/LECTURES/Intro_ExtraViz.Rmd).
+- Correlation plots are good. (See my last point above.) They indicate what subset of variables might be the ones to look at more closely, with pairs plots, etc.
+- Variable transformations are good! If a distribution is unimodal but skew, explore whether, e.g., a square-root or logarithmic transformation might make the distribution more symmetric. We will talk "more officially" about variable transformations when we get to linear regression analyses. However, if you want to read a small write-up that discusses transformations a bit earlier, [go here](https://github.com/pefreeman/36-290/blob/master/LECTURES/) and download `Variable_Transformations.pdf`.
+
+```{r}
+plot(df)
+
+if ( require(GGally) == FALSE ) {
+  install.packages("GGally",repos="https://cloud.r-project.org")
+  library(GGally)
+}
+# Updated in 2020. Setting the color not working properly: TBD
+df %>% select(.,ra,dec,velocity.los,log.g,temperature,mag.g,mag.i) %>% ggpairs(.,progress=FALSE,lower=list(combo=wrap("facethist", binwidth=0.8)))
+```
+
+```{r}
+ggplot(data=df, mapping = aes(x=ra, y=dec)) + geom_point(color = "olivedrab", size=0.5) + labs(x = "right ascension (degrees)", y = "declination (degrees)")
+
+ggplot(data=df, mapping = aes(x=dec, y=log.g)) + geom_point(color = "olivedrab", size=0.5) + labs(x = "declination (degrees)", y = "log(surface gravity) (cgs)")
+#dec - mag i is similar
+#dec - mag g is similar
+#dec - temperature is similar
+
+ggplot(data=df, mapping = aes(x=velocity.los, y=temperature)) + geom_point(color = "olivedrab", size=0.5) + labs(x = "velocity (km/s)", y = "temperature (K)")
+#velocity.los - ra is similar
+#velocty.los - dec is similar
+
+ggplot(data=df, mapping = aes(x=log.g, y=temperature)) + geom_point(color = "olivedrab", size=0.5) + labs(x = "log(surface gravity) (cgs)", y = "temperature")
+#log.g - ra is similar
+
+ggplot(data=df, mapping = aes(x=mag.g, y=mag.i)) + geom_point(color = "olivedrab", size=0.5) + labs(x = "magnitude - g", y = "magnitude - i")
+
+ggplot(data=df, mapping = aes(x=ra, y=mag.i)) + geom_point(color = "olivedrab", size=0.5) + labs(x = "right ascension (degrees)", y = "magnitude - i")
+#ra - magnitude g is similar]
+
+ggplot(data=df, mapping = aes(x=ra, y=temperature)) + geom_point(color = "olivedrab", size=0.5) + labs(x = "right ascension (degrees)", y = "temperature")
+#other variables involving temperature are similar
+```
+
+```{r}
+#ra,dec,velocity.los,log.g,temperature,mag.g,mag.i
+ggplot(data=df,mapping=aes(x=ra)) + geom_histogram(fill = 'olivedrab1', bins = 60)
+ggplot(data=df,mapping=aes(x=dec)) + geom_histogram(fill = 'olivedrab1', bins = 60)
+ggplot(data=df,mapping=aes(x=velocity.los)) + geom_histogram(fill = 'olivedrab1', bins = 60)
+ggplot(data=df,mapping=aes(x=log.g)) + geom_histogram(fill = 'olivedrab1', bins = 60)
+ggplot(data=df,mapping=aes(x=temperature)) + geom_histogram(fill = 'olivedrab1', bins = 60)
+ggplot(data=df,mapping=aes(x=mag.g)) + geom_histogram(fill = 'olivedrab1', bins = 60)
+ggplot(data=df,mapping=aes(x=mag.i)) + geom_histogram(fill = 'olivedrab1', bins = 60)
+```
+ra - The data is skewed to the right with apparent outliers.
+dec - The data is skewed to the left with apparent outliers.
+velocity - The data seems to be bimodal with spikes to the left and right. It's also very concentrated around the middle-left region.
+log.g - The data is also bimodel with spikes to the left and right, but covers a wder range.
+temperature - The data is skewed to the right.
+mag.g - The data is slightly skewed to the left with what appears to be two peaks.
+mag.i - Similar to mag.g except with more unclear peaks.
+
+```{r}
+km.out = kmeans(df, 1)
+km.out$cluster
+plot(df, col=(km.out$cluster +1))
+```
+
+```{r}
+hc.complete=hclust(dist(df), method = 'complete')
+plot(hc.complete ,main="Complete Linkage ")
+hc.average = hclust(dist(df), method ="average")
+plot(hc.average , main="Average Linkage")
+hc.single = hclust(dist(df), method ="single")
+plot(hc.single , main="Single Linkage ")
+```
+
+

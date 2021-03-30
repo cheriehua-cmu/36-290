@@ -1,0 +1,158 @@
+---
+title: "Lab_04T"
+author: "36-290 -- Statistical Research Methodology"
+date: "Week 4 Tuesday -- Fall 2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: spacelab
+---
+
+Name: Cherie Hua
+
+Andrew ID: cxhua
+
+This lab is to be begun in class, but may be finished outside of class at any time prior to Wednesday, September 23<sup>rd</sup> at 6:00 PM. You must commit both the edited `Rmd` file and the "knitted" `html` file for this lab to your `GitHub` repo. (You can verbally discuss aspects of the labs with your classmates, but please do not share code, etc.)
+
+---
+
+# Preliminaries
+
+## Goal
+
+The goal of this lab is to work with principal components analysis, or PCA.
+
+## Data
+
+We'll begin by importing the stellar data you've been working with for the past week:
+```{r}
+rm(list=ls())
+file.path = "https://raw.githubusercontent.com/pefreeman/36-290/master/EXAMPLE_DATASETS/DRACO/draco_photometry.Rdata"
+load(url(file.path))
+rm(file.path)
+objects()
+install.packages("GGally",repos="https://cloud.r-project.org")
+library(GGally)
+```
+
+Today we are going to do things a little differently: we are simply going to concentrate on the five magnitude measurements.
+```{r}
+df = data.frame(mag.u,mag.g,mag.r,mag.i,mag.z)
+```
+
+# Questions
+
+To answer the questions below, it will help you to refer to Sections 10.2 and 10.4 of ISLR; it might also help you to refer to your previous lab work (and, as always, to Google). 
+
+## Question 1
+
+Construct a pairs plot for the data frame `df`. Do the data appear to be correlated?
+```{r}
+pairs(df)
+```
+```
+The data appears to have a positive relationship there is a positive slope for each graph. mag.u appears to be less correlated than the others, though.
+```
+
+## Question 2
+
+Perform PCA on these data. (Be sure to look at the documentation, as there is one particular argument to `prcomp()` that you'll want to set!) Show the matrix of loadings, and interpret the principal components. (For instance, is PC1 more strongly tied to any of the magnitudes in particular? How about PCs 2-5?)
+```{r}
+pr.out = prcomp(df, scale = TRUE)
+pr.out$rotation
+```
+```
+PC1 seems more consistent (around -0.4) across magnitudes than PCs 2-5. 
+```
+
+## Question 3
+
+Construct a scree plot showing proportion of variance explained. (See page 403 of ISLR to see how to do this. Use `ggplot()` rather than `plot()`, though. Just show the second plot, the one that involves `cumsum()`.) How many PCs would you retain, if you were to make a choice?
+```{r}
+pr.var = pr.out$sdev^2
+pve = pr.var/sum(pr.var)
+sums = cumsum(pve)
+sums.df <- data.frame(Ps = c("P1", "P2", "P3", "P4", "P5"), dat = c(0.9395261, 0.9959335, 0.9985063, 0.9995350, 1.0000000))
+ggplot(data = sums.df, aes(x = Ps, y = dat)) + geom_bar(stat = "identity")
+```
+```
+I would retain the first 2 PC's since by then it already gets very very close to 1.
+```
+
+## Question 4
+
+Visualize the first two PCs. This information is kept in the first two columns of the `x` matrix output by `prcomp()`. For fun, color the data using the u-band magnitudes. (How? Remember that `mag.u` is in the first column of your original data frame. Set the argument `color` to this. Then add an additional function call on the end, e.g., `scale_color_gradientn(colors=rainbow(6))`. Feel free to play with the number. What you should see is that the colors change with PC2...which makes sense because PC2 is dominated by u-band magnitude. If you change the color to match other bands, then you should see PC1 dominate.)
+```{r}
+ggplot(mapping = aes(pr.out$x[,1], pr.out$x[,2])) + geom_point(color = mag.u) + scale_color_gradientn(colors=rainbow(6))
+```
+
+## Question 5
+
+Show how retaining the first two PCs leads to an almost perfect reconstruction of the data. This is a bit complicated, so here are some pointers:
+
+- First, you are dealing with scaled data. Scaling involves the (column-wise) computation $Z = (X-\mu)/\sigma$, where $X$ is the original data in a column, and $\mu$ and $\sigma$ are the column mean and standard deviation. To get $\mu$ and $\sigma$ for each column, do something like `s = scale(X)`, `mu = as.numeric(attr(s,"scaled:center"))`, and `sigma = as.numeric(attr(s,"scaled:scale"))`. Set these aside for later.
+- To reconstruct data based on the first two PCs, one might do `Xhat = pca.out&dollar;x[,1:2] %*% t(pca.out&dollar;rotation[,1:2])`. This means: matrix multiply the first two columns of `x` with the transpose of the first two columns of `rotation`.
+- To back out the effects of scaling, do something like `Xhat = t(t(Xhat)*sigma+mu)`. The transposing is necessary because of the rules of how matrices and vectors are multiplied on a row-by-row and column-by-column basis.
+
+When you are done, display the first five rows of the difference between your original data frame and your reconstructed data frame. If you do things correctly, they should approximately match. For which wavelength band are the differences closest to zero?
+```{r}
+s = scale(pr.out$x[, 1:2])
+mu = as.numeric(attr(s,"scaled:center"))
+sigma = as.numeric(attr(s,"scaled:scale"))
+Xhat = pr.out$x[, 1:2] %*% t(pr.out$rotation[,1:2])
+Xhat = t(t(Xhat)*sigma+mu)
+
+Xhat[1:5,] - df[1:5,]
+```
+
+```
+I think I did something wrong, since the values are between -17 and -21. mag.z has differences closest to 0.
+```
+
+## Question 6
+
+Now, let's reintroduce the original dataset, but with colors instead of magnitudes:
+```{r}
+df = data.frame("col.ug"=mag.u-mag.g,"col.gr"=mag.g-mag.r,"col.ri"=mag.r-mag.i,"col.iz"=mag.i-mag.z,ra,dec,log.g,metallicity,signal.noise,temperature,velocity.los)
+```
+Perform a PCA analysis of these data, following the steps that you undertook above. Act as through you are making a presentation to a client, i.e., show a plot or two, and explain the reason(s) that you come to the conclusions that you come to. Also, be sure to interpret the PCs that you retain! (Not all of them...just the ones you choose to retain.) By interpret, I really mean, indicate which variables contribute the most to the PCs...you cannot really say *why* these variables contribute to the PCs, because to do that you'd need to be a domain scientist.
+```{r}
+pairs(df)
+```
+```
+The scatterplots don't indicate any strong relationships between variables.
+```
+
+```{r}
+pr.out = prcomp(df, scale = TRUE)
+pr.out$rotation
+```
+
+```{r}
+pr.var = pr.out$sdev^2
+pve = pr.var/sum(pr.var)
+sums = cumsum(pve)
+sums.df <- data.frame(Ps = c("P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10", "P11"), dat = c(0.3373382, 0.5522652, 0.6783142, 0.7530592, 0.8166150, 0.8678349, 0.9122601, 0.9456465, 0.9677310, 0.9863400, 1.0000000))
+ggplot(data = sums.df, aes(x = Ps, y = dat)) + geom_bar(stat = "identity")
+```
+
+```
+This bar chart represents the variance explained by each principal component. From this chart, I'll pick P01 and P02 for further analysis.
+```
+```{r}
+ggplot(mapping = aes(pr.out$x[,1], pr.out$x[,2])) + geom_point(color = mag.u) + scale_color_gradientn(colors=rainbow(6))
+```
+
+```{r}
+s = scale(pr.out$x[, 1:2])
+mu = as.numeric(attr(s,"scaled:center"))
+sigma = as.numeric(attr(s,"scaled:scale"))
+Xhat = pr.out$x[, 1:2] %*% t(pr.out$rotation[,1:2])
+Xhat = t(t(Xhat)*sigma+mu)
+
+Xhat[1:5,] - df[1:5,]
+```
+
+The values here are pretty close to 0, so it looks like PC1 and PC2 contribute significantly to the data.
+

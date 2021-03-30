@@ -1,0 +1,86 @@
+---
+title: "Lab_10R"
+author: "36-290 -- Statistical Research Methodology"
+date: "Week 10 Thursday -- Fall 2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: spacelab
+---
+
+Name: Cherie Hua
+
+Andrew ID: cxhua
+
+This lab is to be begun in class, but may be finished outside of class at any time prior to Friday, November 6<sup>th</sup> at 6:00 PM. You must commit both the edited `Rmd` file and the "knitted" `html` file for this lab to your `GitHub` repo. (You can verbally discuss aspects of the labs with your classmates, but please do not share code, etc.)
+
+---
+
+# Preliminaries
+
+## Goal
+
+This is going to be a bit more of an open-ended lab, since there is only really so much one can say about Naive Bayes itself. The goal will be for you to practice learning classifiers for pulsar detection.
+
+Pulsars are neutron stars that spin rapidly (up to many times per second!) and give off "pulses" of electromagnetic radiation (i.e., light). The pulses occur because the physics of the pulsar environment leads to pulsar emission being "beamed"...unlike the Sun, which gives off essentially the exact same amount of light in all directions, a pulsar may give off light in certain preferential directions. (Think of a lighthouse...that will give you the intuitive picture.) If we are lucky enough to sit in a location that the beam passes over every time a pulsar rotates, then we see less light, then more light, then less light, etc.
+
+To back up: a neutron star is a stellar remnant of size roughly 10 miles across. A neutron star is generally formed during a supernova at the end of a massive star's lifetime. (Stars that are eight solar masses or more generally explode and leave behind neutron stars; smaller stars tend to slough off their gas over time and leave behind white dwarfs, which are Earth-sized.) A neutron star is called a neutron star because it is pretty much literally a bag of neutrons (no electrons, no protons, just neutrons) that holds itself up via a mechanism called "degeneracy pressure." Without degeneracy pressure, the neutron star would simply collapse can become a black hole. (And with enough mass, one can induce this sort of collapse--hence the existence of black holes.)
+
+At the end of the day: we scan the skies, we get data, we need to figure out which pulsar candidates are pulsars. A binary classification problem. Onwards...
+
+## Data
+
+Below we read in a dataset from the UCI Machine Learning Repository. Because it exists elsewhere, I haven't put it on `GitHub`. If you want to see the raw data and documentation, search for the `HTRU2` dataset.
+```{r}
+rm(list=ls())
+file.path = "http://www.stat.cmu.edu/~pfreeman/pulsar.Rdata"
+load(url(file.path))
+rm(file.path)
+cat("Number of predictor variables: ",ncol(predictors),"\n")
+cat("Sample size:                   ",nrow(predictors),"\n")
+```
+The eight predictors are summary statistics that describe the distribution of brightness measurements of a pulsar candidate (mean, standard deviation, skewness, kurtosis) as well as the distribution of "dispersion measure" readings (also mean, standard deviation, skewness, kurtosis).
+
+# Questions
+
+## Question 1
+
+Again, this is an open-ended lab. How well can you do trying to identify pulsars? Split the data into training and test subsets, and learn classifiers for naive Bayes, logistic regression, etc. The classes are unbalanced (90% non-pulsars, 10% pulsars), so you may wish to target AUC as your metric by which to compare the results of different classifiers. The bulk of your work will be going back to old labs (and examining the documentation for the `naivebayes` package, once you install it), and seeing if bit by bit you can get the AUC for each classifier. Conclude by declaring a winner: which classifier that you try gives you the best AUC?
+```{r}
+set.seed(8930)
+dt = sample(nrow(predictors), 0.7*nrow(predictors))
+pred.train = predictors[dt,]
+pred.test = predictors[-dt,]
+resp.train = response[dt,]
+resp.test = response[-dt,]
+```
+
+```{r}
+#Naive Bayes
+set.seed(0927)
+library(naivebayes)
+NBclassifier = naive_bayes(as.logical(resp.train) ~ ., data = pred.train)
+nb.pred = predict(NBclassifier, newdata = pred.test)
+library(pROC)
+nb.roc <- roc(resp.test, as.numeric(nb.pred))
+auc(nb.roc)
+```
+
+```{r}
+#Logistic Regression
+set.seed(39283)
+logClassifier = glm(resp.train ~ ., data = pred.train, family = "binomial")
+log.pred = predict(logClassifier, newdata = pred.test)
+log.roc = roc(resp.test, log.pred)
+auc(log.roc)
+```
+
+```{r}
+#random forest
+library(randomForest)
+rf <- randomForest(formula = resp.train ~ ., data = pred.train, importance = TRUE)
+rf.roc <- roc(resp.test, predict(rf, newdata = pred.test))
+auc(rf.roc)
+```
+The classifier that gives the best AUC is logistic regression.

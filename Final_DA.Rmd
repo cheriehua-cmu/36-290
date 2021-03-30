@@ -1,0 +1,319 @@
+---
+title: "Predicting the Properties of Galaxies in the GOODS-North Field from Multiwavelength Photometry"
+author: "Cherie Hua"
+date: "Fall 2020"
+output: 
+  html_document
+---
+
+# Introduction
+
+The Cosmic Assembly Near-Infrared Deep Extragalactic Legacy Survey (CANDELS) is a program that generates catalogs of distant galaxies observed by the Hubble Space Telescope in five small sky fields, including the so-called GOODS-North field. Astrophysicists use these catalogs to test theories of galaxy evolution. They contain measurements of brightness at a number of wavelengths as well as estimates of galaxy masses made using computationally intensive physics-based codes. A key question is whether one can directly estimate galaxy masses from the brightness data alone.
+
+# Data
+
+The data consist of two measurements of sky coordinates and 13 measurements of brightness at different wavelengths. The response variable that we are trying to predict is galaxy stellar mass, in units of solar masses. There are 13,359 measurements of each variable. 
+
+```{r, include = FALSE}
+rm(list=ls())
+file.path = "https://raw.githubusercontent.com/pefreeman/36-290/master/PROJECT_DATASETS/GOODS-N_MASS/goods-n.Rdata"
+load(url(file.path))
+rm(file.path)
+objects()
+library(GGally)
+library(gridExtra)
+library(glmnet)
+library(car)
+library(bestglm)
+options(warn=-1)
+```
+
+
+The predictors are described below.
+
+ Predictor | Description 
+--------- | -----------------------------------------------
+ RA, DEC | Celestial longitude and latitude of galaxy 
+ KPNO_U_FLUX | Brightness of galaxy as observed in the U band at Kitt Peak National Observatory 
+ LBC_U_FLUX | ... in the U' band at the Large Binocular Telescope 
+ ACS_(F435W,F606W,F775W,F814W,F850LP)_FLUX | ... at five different wavelengths (0.435 microns, etc.) using Hubble's Advanced Camera for Surveys
+ WFC3_(F105W,F125W,F140W,F160W)_FLUX | ... at four different wavelengths (1.05 microns, etc.) using Hubble's Wide-Field Camera
+ MOIRCS_K_FLUX | ... in the K band at the Subaru Telescope 
+ CFHT_Ks_FLUX | ... in the Ks band at the Canada-France-Hawaii Telescope
+
+These predictors will be used to predict the log-base-10 of the estimated galaxy stellar mass, in units of solar masses.
+
+# EDA
+
+First, we will plot each variable against the response variable. Since FLUX data are right-skewed, we will apply a log transformation.
+```{r, echo = FALSE}
+ra.plot = suppressWarnings(ggplot(data=predictors, mapping=aes(x=RA, y=response)) + geom_point(color="red", size = 0.5, alpha = 0.05))
+dec.plot = suppressWarnings(ggplot(data=predictors, mapping=aes(x=DEC, y=response)) + geom_point(color="red", size = 0.5, alpha = 0.05))
+kpno = suppressWarnings(ggplot(data=predictors, mapping=aes(x=log(KPNO_U_FLUX), y=response)) + geom_point(color="blue", size = 0.5, alpha = 0.05) + xlim(0, 2))
+lbc = suppressWarnings(ggplot(data=predictors, mapping=aes(x=log(LBC_U_FLUX), y=response)) + geom_point(color="olivedrab", size = 0.5, alpha = 0.05) + xlim(0, 2))
+acs1 = suppressWarnings(ggplot(data=predictors, mapping=aes(x=log(ACS_F435W_FLUX), y=response)) + geom_point(color="orange", size = 0.5, alpha = 0.05) + xlim(0, 2))
+acs2 = suppressWarnings(ggplot(data=predictors, mapping=aes(x=log(ACS_F606W_FLUX), y=response)) + geom_point(color="orange", size = 0.5, alpha = 0.05) + xlim(0, 2))
+acs3 = suppressWarnings(ggplot(data=predictors, mapping=aes(x=log(ACS_F775W_FLUX), y=response)) + geom_point(color="orange", size = 0.5, alpha = 0.05)+ xlim(0, 2))
+acs4 = suppressWarnings(ggplot(data=predictors, mapping=aes(x=log(ACS_F814W_FLUX), y=response)) + geom_point(color="orange", size = 0.5, alpha = 0.05)+ xlim(0, 2))
+acs5 = suppressWarnings(ggplot(data=predictors, mapping=aes(x=log(ACS_F850LP_FLUX), y=response)) + geom_point(color="orange", size = 0.5, alpha = 0.05)+ xlim(0, 2))
+wfc1 = suppressWarnings(ggplot(data=predictors, mapping=aes(x=log(WFC3_F105W_FLUX), y=response)) + geom_point(color="hotpink1", size = 0.5, alpha = 0.05)+ xlim(0, 2))
+wfc2 = suppressWarnings(ggplot(data=predictors, mapping=aes(x=log(WFC3_F125W_FLUX), y=response)) + geom_point(color="hotpink1", size = 0.5, alpha = 0.05)+ xlim(0, 2))
+wfc3 = suppressWarnings(ggplot(data=predictors, mapping=aes(x=log(WFC3_F140W_FLUX), y=response)) + geom_point(color="hotpink1", size = 0.5, alpha = 0.05)+ xlim(0, 2))
+wfc4 = suppressWarnings(ggplot(data=predictors, mapping=aes(x=log(WFC3_F160W_FLUX), y=response)) + geom_point(color="hotpink1", size = 0.5, alpha = 0.05)+ xlim(0, 2))
+moircs = suppressWarnings(ggplot(data=predictors, mapping=aes(x=log(MOIRCS_K_FLUX), y=response)) + geom_point(color="cyan3", size = 0.5, alpha = 0.05)+ xlim(0, 2))
+cfht = suppressWarnings(ggplot(data=predictors, mapping=aes(x=log(CFHT_Ks_FLUX), y=response)) + geom_point(color="purple", size = 0.5, alpha = 0.05)+ xlim(0, 2))
+suppressWarnings(grid.arrange(ra.plot, dec.plot, kpno, lbc, acs1, acs2, acs3, acs4, acs5, wfc1, wfc2, wfc3, wfc4, moircs, cfht, nrow = 3))
+```
+
+Other than RA and DEC, which seem randomly distributed, the graphs seem pretty similar. Thus, we will exclude RA and DEC from our pairs plot.
+
+We will first compare the ACS_FLUX data variables against each other.
+```{r}
+ggpairs(data.frame(log(predictors$ACS_F435W_FLUX), log(predictors$ACS_F606W_FLUX), log(predictors$ACS_F775W_FLUX), log(predictors$ACS_F814W_FLUX), log(predictors$ACS_F850LP_FLUX)))
+```
+
+The ACS data collected at different wavelengths appear highly positively correlated.
+
+```{r}
+ggpairs(data.frame(log(predictors$KPNO_U_FLUX), log(predictors$LBC_U_FLUX), log(predictors$MOIRCS_K_FLUX), log(predictors$CFHT_Ks_FLUX)))
+```
+
+Other than KPNO_U_FLUX vs LBC_U_FLUX, the data do not seem to be highly correlated.
+
+Finally, to examine the WFC_FLUX variables:
+```{r}
+suppressWarnings(ggpairs(data.frame(log(predictors$WFC3_F105W_FLUX), log(predictors$WFC3_F125W_FLUX), log(predictors$WFC3_F140W_FLUX), log(predictors$WFC3_F160W_FLUX))))
+```
+
+The WFC data collected at different wavelengths appear highly positively correlated.
+
+To analyze the response variable, we will use a histogram:
+```{r}
+ggplot(data.frame(response), mapping = aes(x = response)) + geom_histogram(fill = "blue", color = "darkBlue", bins = 30) + xlab("log10(Mass)")
+```
+
+The response variable appears to be symmetric, with no outliers.
+
+### Principal Components Analysis (PCA)
+We will perform PCA to determine the most important variables for analysis. PCA can reduce the number of dimensions while retaining as much information as possible.
+
+```{r}
+pca.out = prcomp(predictors, scale = TRUE)
+pca.var = pca.out$sdev^2
+pca.pve = pca.var/sum(pca.var)
+data.frame("PC Variable" = 1:15, "Proportion of Data Explained" = round(pca.pve, 3))
+pve.sum = cumsum(pca.pve)
+pve.df = data.frame("range" = 1:15, "sum" = pve.sum)
+ggplot(pve.df, mapping = aes(range, sum)) + geom_line(color = "blue") + xlab("# of Features") + ylab("Cumulative % Variance Explained") + ggtitle("PCA Analysis")
+```
+
+From the graph, it appears that the optimal number of variables is 8.
+
+# Initial Regression Analyses
+
+We will use 70% of the 13359 measurements as training data, and the rest as testing data.
+
+Below, we apply a log transformation to every predictor except RA and DEC, as they are not right skewed. Then we will use vif to create a dataset with the most important variables.:
+```{r}
+set.seed(13981)
+
+predictors = log(abs(predictors))
+predictors$RA = 10^abs(predictors$RA)
+predictors$DEC = 10^abs(predictors$DEC)
+
+#find which variables to keep
+THRESHOLD = 10
+pred.vif = predictors
+istop = 0
+while ( istop == 0 ) {
+  lm.out = lm(response~.,data=pred.vif)
+  v = vif(lm.out)
+  if ( max(v) > THRESHOLD ) {
+    pred.vif = pred.vif[,-which.max(v)]
+  } else {
+    istop = 1
+  }
+}
+print(v)
+
+#8 predictors after vif
+predictors.vif = subset(predictors, select = c(RA, DEC, KPNO_U_FLUX, LBC_U_FLUX, ACS_F435W_FLUX, WFC3_F105W_FLUX, MOIRCS_K_FLUX, CFHT_Ks_FLUX))
+```
+
+Afterwards, we split the data for the full set of predictors and the vif-selected predictors. 
+```{r}
+dt = sort(sample(nrow(predictors), nrow(predictors)*0.7))
+pred.train = predictors[dt,]
+pred.test = predictors[-dt,]
+pred.train.vif = predictors.vif[dt,]
+pred.test.vif = predictors.vif[-dt,]
+resp.train = response[dt]
+resp.test = response[-dt]
+data.train = data.frame(cbind(pred.train, resp.train))
+```
+
+First, we will try linear regression. 
+```{r}
+#linear regression
+set.seed(5294)
+lm.train = lm(resp.train ~ ., data = pred.train)
+summary(lm.train)
+vif(lm.train)
+lm.preds = predict(lm.train, newdata = pred.test)
+lm.mse = mean((resp.test - lm.preds)^2)
+lm.mse
+```
+The adjusted-R^2 value is 0.6981, indicating that this fit is accurate. The MSE is 0.2408.
+
+Next, we will try linear regresssion with the vif()-reduced set of predictors.
+```{r}
+#linear regression with vif
+set.seed(5294)
+lm.train = lm(resp.train ~ ., data=pred.train.vif)
+summary(lm.train)
+vif(lm.train)
+lm.preds = predict(lm.train, newdata = pred.test)
+lm.mse = mean((resp.test - lm.preds)^2)
+lm.mse
+```
+The adjusted-R^2 value is 0.5560, indicating that this fit is reasonably accurate. The MSE is 0.3588.
+
+Next we will try glm with BIC and predict using the best model.
+```{r}
+#glm
+set.seed(49287)
+glm.all <- bestglm(na.omit(data.train), IC = "BIC")
+glm.all
+glm.all.preds = predict(glm.all$BestModel, newdata = pred.test)
+glm.all.mse = mean((resp.test - glm.all.preds)^2)
+glm.all.mse
+```
+The MSE is 0.2409.
+
+Next we will try glm with BIC using the vif-reduced predictors, and predict using the best model.
+```{r}
+#glm with vif
+set.seed(28947)
+data.train.vif = cbind(pred.train.vif, resp.train)
+glm.vif <- bestglm(data.train.vif, IC = "BIC")
+
+glm.vif.preds = predict(glm.vif$BestModel, newdata = pred.test)
+glm.vif.mse = mean((resp.test[1:length(glm.vif.preds)] - glm.vif.preds)^2)
+glm.vif.mse
+```
+The MSE is 0.3596.
+
+Next we will try lasso regression.
+```{r}
+#lasso
+set.seed(2948)
+x.train = model.matrix(~., pred.train)
+x.test = model.matrix(~., pred.test)
+lasso.mass = cv.glmnet(x.train, resp.train, alpha=1)
+
+lasso.mass.pred = predict(lasso.mass, lambda=lasso.mass$lambda.min, x.test)
+lasso.mass.mse = mean((predict(lasso.mass, lambda=lasso.mass$lambda.min, x.test) - resp.test)^2)
+lasso.mass.mse
+```
+The MSE is 0.2482.
+
+Next we will try lasso with the vif-reduced predictors.
+```{r}
+#lasso with vif
+set.seed(0384)
+x.train = model.matrix(~., pred.train.vif)
+x.test = model.matrix(~., pred.test.vif)
+lasso.vif = cv.glmnet(x.train, resp.train, alpha=1)
+
+lasso.vif.pred = predict(lasso.vif, lambda=lasso.vif$lambda.min, x.test)
+lasso.vif.mse = mean((predict(lasso.vif, lambda=lasso.vif$lambda.min, x.test) - resp.test)^2)
+lasso.vif.mse
+```
+The MSE is 0.3635.
+
+Next we will try ridge regression.
+```{r}
+#ridge
+set.seed(39827)
+x.train = model.matrix(~., pred.train)
+x.test = model.matrix(~., pred.test)
+ridge.mass = cv.glmnet(x.train, resp.train, alpha=0)
+
+ridge.predict = predict(ridge.mass, lambda=ridge.mass$lambda.min, x.test)
+ridge.mass.mse = mean((predict(ridge.mass, lambda=ridge.mass$lambda.min, x.test) - resp.test)^2)
+ridge.mass.mse
+```
+The MSE is 0.2797.
+
+Next we will try ridge regression with the vif-reduced predictors.
+```{r}
+#ridge with vif
+set.seed(1285)
+x.train = model.matrix(~., pred.train.vif)
+x.test = model.matrix(~., pred.test.vif)
+ridge.mass = cv.glmnet(x.train, resp.train, alpha=0)
+
+ridge.predict = predict(ridge.mass, lambda=ridge.mass$lambda.min, x.test)
+ridge.mass.mse = mean((predict(ridge.mass, lambda=ridge.mass$lambda.min, x.test) - resp.test)^2)
+ridge.mass.mse
+```
+The MSE is 0.3717.
+
+Next we will try random forest.
+```{r}
+#random forest
+set.seed(4810)
+library(randomForest)
+rf <- randomForest(formula = resp.train ~ ., data = pred.train, importance = TRUE)
+yhat.rf = predict(rf, newdata = pred.test)
+rf.mse = mean((yhat.rf - resp.test)^2)
+rf.mse
+```
+The MSE is 0.1735.
+
+Next we will try k-nearest neighbors.
+```{r}
+#k-nearest neighbors
+set.seed(8103)
+library(FNN)
+k.max <- 45
+mse.k <- vector("double", length = k.max)
+for (i in 1:k.max) {
+  reg <- knn.reg(pred.train, y = resp.train, test = pred.test, k = i, algorithm="brute")
+  mse.k[i] <- mean((reg$pred - resp.test)^2)
+}
+
+min(mse.k)
+```
+The MSE is 0.5244.
+
+Model | MSE
+----- | ---
+linear regression | 0.2408
+bestglm | 0.2409
+lasso regression | 0.2482
+ridge regression | 0.2797
+random forest | 0.1735
+k-nearest neighbors | 0.5244
+
+vif()-Reduced Model | MSE
+----- | ---
+vif()-reduced linear regression | 0.3588
+vif()-reduced bestglm | 0.3596
+vif()-reduced lasso regression | 0.3635
+vif()-reduced ridge regression | 0.3717
+
+Based on our tables, it is clear to see a prediction-inference tradeoff. We sacrifice an average of about a 50% increase in MSE if we were to pursue inference. 
+
+According to our table of MSE's, the best model is the random forest model as it is closest to 0.
+
+A plot with the lasso regression prediction of mass against the actual mass is shown below.
+
+```{r}
+ggplot() + geom_point(aes(x = resp.test, y = yhat.rf), color = "olivedrab") + geom_abline() + xlab("Actual Masses") + ylab("Predicted Masses") + xlim(7, 10) + ylim(7, 10)
+```
+
+The relationship between predicted and actual masses looks relatively positively linear. This indicates that our random forest model is fairly accurate.
+
+# Conclusion
+We were able to find a model that represented the relationship between brightness and estimated galaxy stellar mass relatively well. The relationship is best described with a random forest model, with an MSE of 0.1735.

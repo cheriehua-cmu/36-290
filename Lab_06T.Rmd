@@ -1,0 +1,154 @@
+---
+title: "Lab_06T"
+author: "36-290 -- Statistical Research Methodology"
+date: "Week 6 Tuesday -- Fall 2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: spacelab
+---
+
+Name: Cherie Hua
+
+Andrew ID: cxhua
+
+This lab is to be begun in class, but may be finished outside of class at any time prior to Wednesday, October 7<sup>th</sup> at 6:00 PM. You must commit both the edited `Rmd` file and the "knitted" `html` file for this lab to your `GitHub` repo. (You can verbally discuss aspects of the labs with your classmates, but please do not share code, etc.)
+
+---
+
+# Preliminaries
+
+## Goal
+
+The goal of this lab is to code and interpret a best subset selection analysis.
+
+## Data
+
+We'll begin by importing galaxy data:
+```{r}
+rm(list=ls())
+file.path = "https://raw.githubusercontent.com/pefreeman/36-290/master/EXAMPLE_DATASETS/PHOTO_MORPH/photo_morph.Rdata"
+load(url(file.path))
+df = data.frame(predictors,"y"=response)
+rm(file.path,predictors,response)
+objects()
+```
+
+If everything loaded correctly, you should see one variables in your global environment: `df`. `df` has 17 measurements each for 3,419 galaxies, with the column `y` being a response vector with 3,419 spectroscopically determined redshifts (spectroscopic = "effectively no error in the redshift determination"). I combine the predictors and response into one data frame because this is what the `bestglm()` function, the one you will use below, expects as an input.
+
+To see a full description of the dataset, 
+click [here](https://github.com/pefreeman/36-290/tree/master/EXAMPLE_DATASETS/PHOTO_MORPH). The short version of the description is that of the 16 predictor variables, four represent brightness (one magnitude, three colors), and 12 are morphological statistics, i.e., statistics that encode the galaxy's appearance. The question at hand is: which, if any, of the morphological statistics are informative in predicting redshift?
+
+# Questions
+
+To answer the questions below, it will help you to refer to Sections 6.1 of ISLR; it might also help you to refer to your previous lab work (and, as always, to Google).
+
+*Note, however, that you are not going to use the leops package as suggested by ISLR, but rather the bestglm package, which is applicable in both the linear regression and logistic regression regimes.*
+
+## Question 1
+
+Split your data into training and test datasets (keeping in mind that cross-validation is "better" but not necessary in a lab setting).
+```{r}
+set.seed(199384)
+dt = sort(sample(nrow(df), nrow(df)*.7))
+train<-df[dt,]
+test<-df[-dt,]
+```
+
+
+## Question 2
+
+Apply linear regression to your training data, and then compute the mean-squared error using your test data.
+```{r}
+lm.train = lm(y~., data=train)
+mean((test$y - predict(lm.train, newdata = test))^2)
+```
+```
+The mean-squared error is 0.3118.
+```
+
+## Question 3
+
+Install the `bestglm` package, if you do not have it installed already. Then load that library and use the function `bestglm()` to perform best subset selection on the training data. Do both AIC and BIC...and for each, display the best model. How many predictor variables are retained in the best models? (Don't include the intercepts.) Do the relative numbers of models abide by your expectations? Is one model a subset of the other? (Hint: see the documentation for `bestglm()` and look at the part under "Value"...this describes the `R` object that `bestglm()` returns. The best model is included within that object.)
+```{r}
+library(bestglm)
+aic.glm <- bestglm(train, IC = "AIC")
+aic.glm$BestModel
+length(coef(aic.glm$BestModel))-1
+```
+
+```{r}
+bic.glm <- bestglm(train, IC = "BIC")
+bic.glm$BestModel
+length(coef(bic.glm$BestModel))-1
+```
+```
+AIC - 10 variables are retained.
+BIC - 9 variables are retained.
+The number of variables match my expectations, since BIC tends to underfit and AIC tends to overfit.
+BIC is a subset of AIC.
+```
+
+## Question 4
+
+The output of `bestglm()` contains, as you saw above, `BestModel`. According to the documentation for `bestglm()`, `BestModel` is "[a]n lm-object representing the best fitted algorithm." That means you can pass it to `predict()` in order to generate predicted response values (where the response is in the `y` column of your data frames). Given this information: generate mean-squared error values for the BIC- and AIC-selected models. Are these values larger or smaller than the value you got for linear regression?
+```{r}
+pred.bic <- predict(bic.glm$BestModel, newdata = test)
+pred.aic <- predict(aic.glm$BestModel, newdata = test)
+mean((test$y - pred.bic)^2)
+mean((test$y - pred.aic)^2)
+```
+```
+These values are around the same as the value I got for linear regression.
+```
+
+## Question 5
+
+In Q3, I asked you to output information about the best models for AIC and BIC. Here, choose one of those criteria, and extract the values for that criterion for each $p$ value, where $p$ is the number of retained predictor variables. (Look under `Value` on the `bestglm()` documentation page to see which component of the outputted `R` object contains the information you need.) Then use `ggplot()` to plot the criterion values versus $p$. Zoom in (using `ylim()`) to decrease the dynamic range of the plot and to see more clearly how BIC changes as a function of $p$ near the minimum value. (So as to not hardcode numbers, use, e.g., `min(...)` as the first argument to `ylim`, where you'd replace the `...` with the name of the variable containing the BIC values.)
+```{r}
+library(ggplot2)
+```
+
+```{r}
+ggplot(mapping = aes((1:10), aic.glm$Subsets[y])) + ylim(0, min(aic.glm$Subsets$y))
+ggplot(mapping = aes((1:9), bic.glm$Subsets[y])) + ylim(0, min(bic.glm$Subsets$y))
+```
+uhhhh I'm confused
+
+## Question 6
+
+Run the `summary()` function with the best AIC model from Q3. This produces output akin to that of the output from summarizing a linear model (e.g., one output by `lm()`). What is the adjusted $R^2$ value? What does the value imply about the quality of the linear fit with the best subset of variables?
+```{r}
+summary(aic.glm$BestModel)
+```
+```
+The adjusted $R^2$ value is 0.6166. This value implies that the model isn't a great fit for the best subset of variables.
+```
+
+## Data Part 2
+
+We'll continue by importing data about variable stars:
+```{r}
+rm(list=ls())
+file.path = "https://raw.githubusercontent.com/pefreeman/36-290/master/EXAMPLE_DATASETS/TD_CLASS/css_data.Rdata"
+load(url(file.path))
+tmp = rep("NON-CB",length(response))
+tmp[response==1] = "CB"
+df = data.frame(predictors,"y"=factor(tmp))
+rm(file.path,predictors,response,tmp)
+objects()
+```
+A description of these data are [here](https://github.com/pefreeman/36-290/tree/master/EXAMPLE_DATASETS/TD_CLASS). Here, the data frame that is input contains measurements for each of 46,808 stars, of which 30,582 are identified as "contact binaries." The rest are simply *not* contact binaries. Contact binaries are two stars that orbit a common center of mass and which share an envelope of gas. Think of a contact binary as being like a rotating dumbbell (one stellar core at each end), as opposed to the appearance of a single star, which is a simple sphere. Depending on one's vantage point, a rotating dumbbell of gas will have a brightness that varies over the course of one rotation.
+
+The data contain 17 predictor variables that are summary statistics describing the variability of an observed star. The question for now is, which of these 17 are actually informative when we attempt to learn a statistical model relating variability statistics to the type of variable star?
+
+## Question 7
+
+You ultimately are to repeat Q1, changing the `family` to one that is appropriate for two-class classification, but there's an issue. `bestglm()` in a logistic regression setting limits the number of predictor variables to 15. Remove `max.slope` and `flux.mid50`. But...there's another issue. Because logistic regression requires numerical optimization in order to maximize the likelihood, it is *much* slower than linear regression. So: pick 400 rows of your new data frame at random, and apply `bestglm()` only to the data in those rows. (We are not going to split the data here...the main thing for you to take from this exercise is that variable selection is slow for logistic regression.) When you repeat Q1, you will also want to change `bestglm(...)` to `suppressWarnings(bestglm(...))` or your screen will fill with warnings about how fitted probabilities numerically 0 or 1 occurred (which means infinities are popping up in the optimization). Realize that even with just 400 rows, the fit will be *slow* (on order several minutes). Last: to "speed things up", just run with `IC="AIC"`. Show the best model.
+```{r}
+set.seed(01923857)
+df <- df[,!(names(df) %in% c("max.slope", "flux.mid50"))]
+dt = sort(sample(nrow(df), 400))
+suppressWarnings(bestglm(df[dt,], IC = "AIC", family = binomial))$BestModel
+```
